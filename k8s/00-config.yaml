@@ -1,0 +1,64 @@
+# ============================================================
+# notara-backend / k8s / 00-config.yaml
+# ConfigMap y Secret de aplicación para todos los microservicios
+# Namespace: notara-backend
+#
+# IMPORTANTE: Los DNS de notara-data se referencian como:
+#   <service-name>.<namespace>.svc.cluster.local
+# ============================================================
+
+# ── Namespace ──────────────────────────────────────────────
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: notara-backend
+  labels:
+    project: notara
+    layer: backend
+
+---
+# ── ConfigMap: URLs y variables de entorno ─────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: notara-backend
+data:
+  # ── PostgreSQL (namespace notara-data) ──
+  POSTGRES_USUARIOS_URL: "jdbc:postgresql://postgres-usuarios-svc.notara-data.svc.cluster.local:5432/notara-usuarios-db"
+  POSTGRES_NOTAS_URL: "jdbc:postgresql://postgres-notas-svc.notara-data.svc.cluster.local:5432/notara-notas-metas-db"
+  POSTGRES_PAGOS_URL: "jdbc:postgresql://postgres-pagos-svc.notara-data.svc.cluster.local:5432/notara-pagos-db"
+  POSTGRES_VOCAB_URL: "jdbc:postgresql://postgres-vocabulario-svc.notara-data.svc.cluster.local:5432/notara-vocabulario-db"
+  POSTGRES_USER: "postgres"
+  POSTGRES_PASSWORD: "password"
+
+  # ── MongoDB (namespace notara-data) ──
+  MONGODB_URI: "mongodb://mongodb-svc.notara-data.svc.cluster.local:27017/linguaflow"
+
+  # ── Redis (namespace notara-data) ──
+  REDIS_URL: "redis://redis-svc.notara-data.svc.cluster.local:6379"
+  REDIS_HOST: "redis-svc.notara-data.svc.cluster.local"
+  REDIS_PORT: "6379"
+
+  # ── RabbitMQ (namespace notara-data) ──
+  RABBITMQ_HOST: "rabbitmq-svc.notara-data.svc.cluster.local"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USERNAME: "guest"
+  RABBITMQ_PASSWORD: "guest"
+
+  # ── Eureka (mismo namespace notara-backend) ──
+  EUREKA_URL: "http://eureka-server-svc.notara-backend.svc.cluster.local:8761/eureka"
+
+  # ── URLs internas de microservicios para el API Gateway ──
+  MS_USUARIOS_URL: "http://ms-usuarios-svc.notara-backend.svc.cluster.local:8081"
+  MS_CANCIONES_URL: "http://ms-canciones-svc.notara-backend.svc.cluster.local:3002"
+  MS_NOTAS_METAS_URL: "http://ms-notas-metas-svc.notara-backend.svc.cluster.local:8083"
+  MS_PAGOS_URL: "http://ms-pagos-svc.notara-backend.svc.cluster.local:8084"
+  MS_VOCABULARIO_URL: "http://ms-vocabulario-svc.notara-backend.svc.cluster.local:8086"
+
+  # ── Puertos de cada servicio ──
+  API_GATEWAY_PORT: "3000"
+  MS_CANCIONES_PORT: "3002"
+  SPOTIFY_REDIRECT_URI: "http://localhost:3000/auth/spotify/callback"
+
+---

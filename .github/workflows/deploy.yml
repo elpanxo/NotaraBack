@@ -1,0 +1,220 @@
+# ============================================================
+# notara-backend / .github/workflows/deploy.yml
+# Pipeline CI/CD — Build 8 imágenes Docker → ECR → EKS
+#
+# SECRETS requeridos en este repo:
+#   AWS_ACCESS_KEY_ID       → Credencial AWS Academy
+#   AWS_SECRET_ACCESS_KEY   → Credencial AWS Academy
+#   AWS_SESSION_TOKEN       → Token de sesión Academy (rota cada 4h)
+#   AWS_REGION              → us-east-1
+#   AWS_ACCOUNT_ID          → ID de tu cuenta AWS (12 dígitos)
+#   EKS_CLUSTER_NAME        → notara-cluster
+#   JWT_SECRET              → Secret para firmar JWT
+#   JWT_REFRESH_SECRET      → Secret para refresh tokens
+#   SPOTIFY_CLIENT_ID       → Credencial Spotify API
+#   SPOTIFY_CLIENT_SECRET   → Credencial Spotify API
+#   MAIL_USERNAME           → Email para notificaciones
+#   MAIL_PASSWORD           → App password del email
+# ============================================================
+name: ⚙️ Deploy Backend to EKS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION:   ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+  IMAGE_TAG:    ${{ github.sha }}
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # JOB 1: Build y Push de los 8 microservicios en paralelo
+  # ──────────────────────────────────────────────────────────
+  build:
+    name: 🐳 Build & Push — ${{ matrix.service.name }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false          # Si un servicio falla, los demás continúan
+      matrix:
+        service:
+          - name: eureka-server
+            path: backend/eureka-server
+            ecr:  notara/eureka-server
+
+          - name: ms-usuarios
+            path: backend/ms-usuarios
+            ecr:  notara/ms-usuarios
+
+          - name: ms-canciones
+            path: backend/ms-canciones
+            ecr:  notara/ms-canciones
+
+          - name: ms-notas-metas
+            path: backend/ms-notas-metas
+            ecr:  notara/ms-notas-metas
+
+          - name: ms-pagos-subscripciones
+            path: backend/ms-pagos-subscripciones
+            ecr:  notara/ms-pagos-subscripciones
+
+          - name: ms-notificaciones
+            path: backend/ms-notificaciones
+            ecr:  notara/ms-notificaciones
+
+          - name: ms-vocabulario
+            path: backend/ms-vocabulario
+            ecr:  notara/ms-vocabulario
+
+          - name: api-gateway
+            path: backend/api-gateway
+            ecr:  notara/api-gateway
+
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Credenciales AWS ───────────────────────────────
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      # ── 3. Login ECR ──────────────────────────────────────
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # ── 4. Build y Push ───────────────────────────────────
+      - name: Build & Push ${{ matrix.service.name }}
+        run: |
+          IMAGE_URI=${{ env.ECR_REGISTRY }}/${{ matrix.service.ecr }}
+
+          echo "🔨 Construyendo ${{ matrix.service.name }}..."
+          docker build \
+            -t ${IMAGE_URI}:${{ env.IMAGE_TAG }} \
+            -t ${IMAGE_URI}:latest \
+            ./${{ matrix.service.path }}
+
+          echo "📤 Haciendo push a ECR..."
+          docker push ${IMAGE_URI}:${{ env.IMAGE_TAG }}
+          docker push ${IMAGE_URI}:latest
+
+          echo "✅ ${{ matrix.service.name }} publicado en ECR"
+
+  # ──────────────────────────────────────────────────────────
+  # JOB 2: Deploy a EKS (después de que todos los builds pasen)
+  # ──────────────────────────────────────────────────────────
+  deploy:
+    name: 🚀 Deploy to EKS — notara-backend
+    runs-on: ubuntu-latest
+    needs: build           # Espera que todos los builds terminen
+
+    steps:
+      # ── 1. Checkout ───────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── 2. Credenciales AWS ───────────────────────────────
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      # ── 3. Instalar kubectl ───────────────────────────────
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: v1.29.0
+
+      # ── 4. Conectar al cluster ────────────────────────────
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name   ${{ secrets.EKS_CLUSTER_NAME }}
+
+      # ── 5. Aplicar namespace y ConfigMap ──────────────────
+      - name: Apply namespace & config
+        run: |
+          echo "📋 Aplicando namespace y ConfigMap..."
+          kubectl apply -f k8s/00-config.yaml
+
+      # ── 6. Crear/actualizar Secret de aplicación ──────────
+      - name: Create/update app secret
+        run: |
+          echo "🔐 Actualizando secrets..."
+          kubectl create secret generic backend-secret \
+            --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+            --from-literal=JWT_REFRESH_SECRET="${{ secrets.JWT_REFRESH_SECRET }}" \
+            --from-literal=SPOTIFY_CLIENT_ID="${{ secrets.SPOTIFY_CLIENT_ID }}" \
+            --from-literal=SPOTIFY_CLIENT_SECRET="${{ secrets.SPOTIFY_CLIENT_SECRET }}" \
+            --from-literal=MAIL_USERNAME="${{ secrets.MAIL_USERNAME }}" \
+            --from-literal=MAIL_PASSWORD="${{ secrets.MAIL_PASSWORD }}" \
+            -n notara-backend \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # ── 7. Inyectar imagen real en los manifiestos ─────────
+      - name: Inject ECR image URIs into manifests
+        run: |
+          ECR=${{ env.ECR_REGISTRY }}
+          TAG=${{ env.IMAGE_TAG }}
+
+          # Reemplaza el placeholder ACCOUNT_ID con el registry real
+          sed -i "s|ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com|${ECR}|g" \
+            k8s/01-deployments.yaml
+
+          # Reemplaza :latest con el SHA del commit para trazabilidad
+          sed -i "s|:latest|:${TAG}|g" k8s/01-deployments.yaml
+
+      # ── 8. Aplicar deployments ────────────────────────────
+      - name: Apply deployments
+        run: |
+          echo "📦 Aplicando manifiestos del backend..."
+          kubectl apply -f k8s/01-deployments.yaml
+
+      # ── 9. Esperar: Eureka primero (base para los demás) ──
+      - name: Wait for Eureka Server
+        run: |
+          echo "⏳ Eureka Server (servicio base)..."
+          kubectl rollout status deployment/eureka-server \
+            -n notara-backend --timeout=180s
+
+      # ── 10. Esperar el resto de microservicios ─────────────
+      - name: Wait for all microservices
+        run: |
+          SERVICES=(
+            "ms-usuarios"
+            "ms-canciones"
+            "ms-notas-metas"
+            "ms-pagos"
+            "ms-notificaciones"
+            "ms-vocabulario"
+            "api-gateway"
+          )
+
+          for svc in "${SERVICES[@]}"; do
+            echo "⏳ Esperando deployment/$svc ..."
+            kubectl rollout status deployment/$svc \
+              -n notara-backend --timeout=180s
+          done
+
+      # ── 11. Estado final ───────────────────────────────────
+      - name: Show final status
+        run: |
+          echo ""
+          echo "✅ Deploy completado — commit: ${{ env.IMAGE_TAG }}"
+          echo ""
+          echo "📊 Pods en notara-backend:"
+          kubectl get pods -n notara-backend
+          echo ""
+          echo "🌐 Services:"
+          kubectl get svc -n notara-backend

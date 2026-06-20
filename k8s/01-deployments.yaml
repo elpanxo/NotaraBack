@@ -1,0 +1,701 @@
+# ============================================================
+# notara-backend / k8s / 01-deployments.yaml
+# Todos los microservicios del backend
+# Orden recomendado de deploy: eureka → ms-* → api-gateway
+# ============================================================
+
+# ══════════════════════════════════════════════════════════
+# 1. EUREKA SERVER — registro de servicios Spring
+#    Puerto: 8761 | Imagen: notara/eureka-server
+# ══════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: eureka-server
+  namespace: notara-backend
+  labels:
+    app: eureka-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: eureka-server
+  template:
+    metadata:
+      labels:
+        app: eureka-server
+    spec:
+      containers:
+        - name: eureka-server
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/notara/eureka-server:latest
+          ports:
+            - containerPort: 8761
+          env:
+            - name: SERVER_PORT
+              value: "8761"
+          resources:
+            requests:
+              memory: "384Mi"
+              cpu: "150m"
+            limits:
+              memory: "512Mi"
+              cpu: "350m"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8761
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8761
+            initialDelaySeconds: 60
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: eureka-server-svc
+  namespace: notara-backend
+spec:
+  selector:
+    app: eureka-server
+  ports:
+    - port: 8761
+      targetPort: 8761
+  type: ClusterIP
+
+---
+# ══════════════════════════════════════════════════════════
+# 2. MS-USUARIOS — Spring Boot + PostgreSQL + Redis + JWT
+#    Puerto: 8081 | Imagen: notara/ms-usuarios
+# ══════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-usuarios
+  namespace: notara-backend
+  labels:
+    app: ms-usuarios
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-usuarios
+  template:
+    metadata:
+      labels:
+        app: ms-usuarios
+    spec:
+      containers:
+        - name: ms-usuarios
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/notara/ms-usuarios:latest
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SERVER_PORT
+              value: "8081"
+            - name: EUREKA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: EUREKA_URL
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_USUARIOS_URL
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_PASSWORD
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: REDIS_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: JWT_SECRET
+            - name: JWT_REFRESH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: JWT_REFRESH_SECRET
+          resources:
+            requests:
+              memory: "384Mi"
+              cpu: "200m"
+            limits:
+              memory: "768Mi"
+              cpu: "500m"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 40
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-usuarios-svc
+  namespace: notara-backend
+spec:
+  selector:
+    app: ms-usuarios
+  ports:
+    - port: 8081
+      targetPort: 8081
+  type: ClusterIP
+
+---
+# ══════════════════════════════════════════════════════════
+# 3. MS-CANCIONES — Node.js + MongoDB + Redis + Spotify
+#    Puerto: 3002 | Imagen: notara/ms-canciones
+# ══════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-canciones
+  namespace: notara-backend
+  labels:
+    app: ms-canciones
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-canciones
+  template:
+    metadata:
+      labels:
+        app: ms-canciones
+    spec:
+      containers:
+        - name: ms-canciones
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/notara/ms-canciones:latest
+          ports:
+            - containerPort: 3002
+          env:
+            - name: MS_CANCIONES_PORT
+              value: "3002"
+            - name: MONGODB_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: MONGODB_URI
+            - name: REDIS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: REDIS_URL
+            - name: SPOTIFY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: SPOTIFY_CLIENT_ID
+            - name: SPOTIFY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: SPOTIFY_CLIENT_SECRET
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "512Mi"
+              cpu: "400m"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-canciones-svc
+  namespace: notara-backend
+spec:
+  selector:
+    app: ms-canciones
+  ports:
+    - port: 3002
+      targetPort: 3002
+  type: ClusterIP
+
+---
+# ══════════════════════════════════════════════════════════
+# 4. MS-NOTAS-METAS — Spring Boot + PostgreSQL
+#    Puerto: 8083 | Imagen: notara/ms-notas-metas
+# ══════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-notas-metas
+  namespace: notara-backend
+  labels:
+    app: ms-notas-metas
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-notas-metas
+  template:
+    metadata:
+      labels:
+        app: ms-notas-metas
+    spec:
+      containers:
+        - name: ms-notas-metas
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/notara/ms-notas-metas:latest
+          ports:
+            - containerPort: 8083
+          env:
+            - name: SERVER_PORT
+              value: "8083"
+            - name: EUREKA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: EUREKA_URL
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_NOTAS_URL
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_PASSWORD
+          resources:
+            requests:
+              memory: "384Mi"
+              cpu: "150m"
+            limits:
+              memory: "768Mi"
+              cpu: "400m"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8083
+            initialDelaySeconds: 40
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-notas-metas-svc
+  namespace: notara-backend
+spec:
+  selector:
+    app: ms-notas-metas
+  ports:
+    - port: 8083
+      targetPort: 8083
+  type: ClusterIP
+
+---
+# ══════════════════════════════════════════════════════════
+# 5. MS-PAGOS-SUBSCRIPCIONES — Spring Boot + PostgreSQL + RabbitMQ
+#    Puerto: 8084 | Imagen: notara/ms-pagos-subscripciones
+# ══════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-pagos
+  namespace: notara-backend
+  labels:
+    app: ms-pagos
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-pagos
+  template:
+    metadata:
+      labels:
+        app: ms-pagos
+    spec:
+      containers:
+        - name: ms-pagos
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/notara/ms-pagos-subscripciones:latest
+          ports:
+            - containerPort: 8084
+          env:
+            - name: SERVER_PORT
+              value: "8084"
+            - name: EUREKA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: EUREKA_URL
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_PAGOS_URL
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_PASSWORD
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: RABBITMQ_PORT
+            - name: RABBITMQ_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: RABBITMQ_PASSWORD
+          resources:
+            requests:
+              memory: "384Mi"
+              cpu: "150m"
+            limits:
+              memory: "768Mi"
+              cpu: "400m"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8084
+            initialDelaySeconds: 40
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-pagos-svc
+  namespace: notara-backend
+spec:
+  selector:
+    app: ms-pagos
+  ports:
+    - port: 8084
+      targetPort: 8084
+  type: ClusterIP
+
+---
+# ══════════════════════════════════════════════════════════
+# 6. MS-NOTIFICACIONES — Spring Boot + RabbitMQ + Email
+#    Puerto: 8085 | Imagen: notara/ms-notificaciones
+# ══════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-notificaciones
+  namespace: notara-backend
+  labels:
+    app: ms-notificaciones
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ms-notificaciones
+  template:
+    metadata:
+      labels:
+        app: ms-notificaciones
+    spec:
+      containers:
+        - name: ms-notificaciones
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/notara/ms-notificaciones:latest
+          ports:
+            - containerPort: 8085
+          env:
+            - name: SERVER_PORT
+              value: "8085"
+            - name: EUREKA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: EUREKA_URL
+            - name: RABBITMQ_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: RABBITMQ_HOST
+            - name: RABBITMQ_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: RABBITMQ_PORT
+            - name: RABBITMQ_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: RABBITMQ_USERNAME
+            - name: RABBITMQ_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: RABBITMQ_PASSWORD
+            - name: MAIL_HOST
+              value: "smtp.gmail.com"
+            - name: MAIL_PORT
+              value: "587"
+            - name: MAIL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: MAIL_USERNAME
+            - name: MAIL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: MAIL_PASSWORD
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "300m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-notificaciones-svc
+  namespace: notara-backend
+spec:
+  selector:
+    app: ms-notificaciones
+  ports:
+    - port: 8085
+      targetPort: 8085
+  type: ClusterIP
+
+---
+# ══════════════════════════════════════════════════════════
+# 7. MS-VOCABULARIO — Spring Boot + PostgreSQL + Redis
+#    Puerto: 8086 | Imagen: notara/ms-vocabulario
+# ══════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-vocabulario
+  namespace: notara-backend
+  labels:
+    app: ms-vocabulario
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-vocabulario
+  template:
+    metadata:
+      labels:
+        app: ms-vocabulario
+    spec:
+      containers:
+        - name: ms-vocabulario
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/notara/ms-vocabulario:latest
+          ports:
+            - containerPort: 8086
+          env:
+            - name: SERVER_PORT
+              value: "8086"
+            - name: EUREKA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: EUREKA_URL
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_VOCAB_URL
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_USER
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: POSTGRES_PASSWORD
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: backend-config
+                  key: REDIS_PORT
+          resources:
+            requests:
+              memory: "384Mi"
+              cpu: "150m"
+            limits:
+              memory: "768Mi"
+              cpu: "400m"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8086
+            initialDelaySeconds: 40
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-vocabulario-svc
+  namespace: notara-backend
+spec:
+  selector:
+    app: ms-vocabulario
+  ports:
+    - port: 8086
+      targetPort: 8086
+  type: ClusterIP
+
+---
+# ══════════════════════════════════════════════════════════
+# 8. API-GATEWAY — Node.js, punto de entrada del backend
+#    Puerto: 3000 | Imagen: notara/api-gateway
+# ══════════════════════════════════════════════════════════
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: notara-backend
+  labels:
+    app: api-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/notara/api-gateway:latest
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - configMapRef:
+                name: backend-config
+          env:
+            - name: API_GATEWAY_PORT
+              value: "3000"
+            - name: SPOTIFY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: SPOTIFY_CLIENT_ID
+            - name: SPOTIFY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secret
+                  key: SPOTIFY_CLIENT_SECRET
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "150m"
+            limits:
+              memory: "512Mi"
+              cpu: "400m"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-svc
+  namespace: notara-backend
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP
+
+---
+# ══════════════════════════════════════════════════════════
+# HPA — Autoscaling para servicios críticos
+# ══════════════════════════════════════════════════════════
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-gateway-hpa
+  namespace: notara-backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-gateway
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: ms-usuarios-hpa
+  namespace: notara-backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: ms-usuarios
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

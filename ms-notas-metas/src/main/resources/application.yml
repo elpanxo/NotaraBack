@@ -1,16 +1,13 @@
 server:
   port: ${SERVER_PORT:8083}
-
 spring:
   application:
     name: ms-notas-metas
-
   datasource:
-    url: jdbc:postgresql://postgres-notas-metas:5432/notara-notas-metas-db
-    username: postgres
-    password: password
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres-notas-svc.notara-data.svc.cluster.local:5432/notara-notas-metas-db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
-
   jpa:
     hibernate:
       ddl-auto: update
@@ -21,19 +18,18 @@ spring:
         jdbc:
           lob:
             non_contextual_creation: true
-
 eureka:
   client:
     enabled: true
     service-url:
-      defaultZone: ${EUREKA_URL:http://eureka-server:8761/eureka}
-
+      defaultZone: ${EUREKA_URL:http://eureka-server-svc.notara-backend.svc.cluster.local:8761/eureka}
   instance:
     hostname: ms-notas-metas
     prefer-ip-address: true
-
 management:
   endpoints:
     web:
       exposure:
         include: health,info
+ms-usuarios:
+  url: ${MS_USUARIOS_URL:http://ms-usuarios-svc.notara-backend.svc.cluster.local:8081}

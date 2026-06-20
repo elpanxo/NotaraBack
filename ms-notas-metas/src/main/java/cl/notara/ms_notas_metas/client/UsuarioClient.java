@@ -27,7 +27,7 @@ import org.springframework.web.bind.annotation.PathVariable;
  */
 @FeignClient(
         name = "usuarioClient",
-        url = "http://ms-usuarios:8081"
+        url = "${ms-usuarios.url}"
 )
 public interface UsuarioClient {
 

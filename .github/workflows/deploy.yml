@@ -2,8 +2,6 @@
 # notara-backend / .github/workflows/deploy.yml
 # Pipeline CI/CD — Build 8 microservicios → 1 repo ECR (notara-back)
 #                   con tags por servicio → EKS
-#
-# IMPORTANTE: Usamos UN SOLO repositorio ECR llamado "notara-back".
 # Cada microservicio se diferencia por el TAG de la imagen:
 #   notara-back:eureka-server-latest
 #   notara-back:ms-usuarios-latest

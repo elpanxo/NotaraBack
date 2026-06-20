@@ -1,6 +1,14 @@
 # ============================================================
 # notara-backend / .github/workflows/deploy.yml
-# Pipeline CI/CD — Build 8 imágenes Docker → ECR → EKS
+# Pipeline CI/CD — Build 8 microservicios → 1 repo ECR (notara-back)
+#                   con tags por servicio → EKS
+#
+# IMPORTANTE: Usamos UN SOLO repositorio ECR llamado "notara-back".
+# Cada microservicio se diferencia por el TAG de la imagen:
+#   notara-back:eureka-server-latest
+#   notara-back:ms-usuarios-latest
+#   notara-back:ms-usuarios-<sha-del-commit>
+#   etc.
 #
 # SECRETS requeridos en este repo:
 #   AWS_ACCESS_KEY_ID       → Credencial AWS Academy
@@ -9,12 +17,9 @@
 #   AWS_REGION              → us-east-1
 #   AWS_ACCOUNT_ID          → ID de tu cuenta AWS (12 dígitos)
 #   EKS_CLUSTER_NAME        → notara-cluster
-#   JWT_SECRET              → Secret para firmar JWT
-#   JWT_REFRESH_SECRET      → Secret para refresh tokens
-#   SPOTIFY_CLIENT_ID       → Credencial Spotify API
-#   SPOTIFY_CLIENT_SECRET   → Credencial Spotify API
-#   MAIL_USERNAME           → Email para notificaciones
-#   MAIL_PASSWORD           → App password del email
+#   JWT_SECRET, JWT_REFRESH_SECRET
+#   SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET
+#   MAIL_USERNAME, MAIL_PASSWORD
 # ============================================================
 name: ⚙️ Deploy Backend to EKS
 
@@ -24,134 +29,117 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION:   ${{ secrets.AWS_REGION }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-  IMAGE_TAG:    ${{ github.sha }}
+  ECR_REPO: notara-back # ← un solo repo para todos los microservicios
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   # ──────────────────────────────────────────────────────────
   # JOB 1: Build y Push de los 8 microservicios en paralelo
+  # Cada uno se publica como notara-back:<servicio>-<tag>
   # ──────────────────────────────────────────────────────────
   build:
     name: 🐳 Build & Push — ${{ matrix.service.name }}
     runs-on: ubuntu-latest
 
     strategy:
-      fail-fast: false          # Si un servicio falla, los demás continúan
+      fail-fast: false
       matrix:
         service:
           - name: eureka-server
-            path: backend/eureka-server
-            ecr:  notara/eureka-server
+            path: eureka-server
 
           - name: ms-usuarios
-            path: backend/ms-usuarios
-            ecr:  notara/ms-usuarios
+            path: ms-usuarios
 
           - name: ms-canciones
-            path: backend/ms-canciones
-            ecr:  notara/ms-canciones
+            path: ms-canciones
 
           - name: ms-notas-metas
-            path: backend/ms-notas-metas
-            ecr:  notara/ms-notas-metas
+            path: ms-notas-metas
 
           - name: ms-pagos-subscripciones
-            path: backend/ms-pagos-subscripciones
-            ecr:  notara/ms-pagos-subscripciones
+            path: ms-pagos-subscripciones
 
           - name: ms-notificaciones
-            path: backend/ms-notificaciones
-            ecr:  notara/ms-notificaciones
+            path: ms-notificaciones
 
           - name: ms-vocabulario
-            path: backend/ms-vocabulario
-            ecr:  notara/ms-vocabulario
+            path: ms-vocabulario
 
           - name: api-gateway
-            path: backend/api-gateway
-            ecr:  notara/api-gateway
+            path: api-gateway
 
     steps:
-      # ── 1. Checkout ───────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Credenciales AWS ───────────────────────────────
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region:            ${{ env.AWS_REGION }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      # ── 3. Login ECR ──────────────────────────────────────
       - name: Login to Amazon ECR
         uses: aws-actions/amazon-ecr-login@v2
 
-      # ── 4. Build y Push ───────────────────────────────────
       - name: Build & Push ${{ matrix.service.name }}
         run: |
-          IMAGE_URI=${{ env.ECR_REGISTRY }}/${{ matrix.service.ecr }}
+          IMAGE_URI=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO }}
+          SERVICE=${{ matrix.service.name }}
 
-          echo "🔨 Construyendo ${{ matrix.service.name }}..."
+          echo "🔨 Construyendo ${SERVICE}..."
           docker build \
-            -t ${IMAGE_URI}:${{ env.IMAGE_TAG }} \
-            -t ${IMAGE_URI}:latest \
+            -t ${IMAGE_URI}:${SERVICE}-${{ env.IMAGE_TAG }} \
+            -t ${IMAGE_URI}:${SERVICE}-latest \
             ./${{ matrix.service.path }}
 
           echo "📤 Haciendo push a ECR..."
-          docker push ${IMAGE_URI}:${{ env.IMAGE_TAG }}
-          docker push ${IMAGE_URI}:latest
+          docker push ${IMAGE_URI}:${SERVICE}-${{ env.IMAGE_TAG }}
+          docker push ${IMAGE_URI}:${SERVICE}-latest
 
-          echo "✅ ${{ matrix.service.name }} publicado en ECR"
+          echo "✅ ${SERVICE} publicado como ${IMAGE_URI}:${SERVICE}-latest"
 
   # ──────────────────────────────────────────────────────────
-  # JOB 2: Deploy a EKS (después de que todos los builds pasen)
+  # JOB 2: Deploy a EKS
   # ──────────────────────────────────────────────────────────
   deploy:
     name: 🚀 Deploy to EKS — notara-backend
     runs-on: ubuntu-latest
-    needs: build           # Espera que todos los builds terminen
+    needs: build
 
     steps:
-      # ── 1. Checkout ───────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Credenciales AWS ───────────────────────────────
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region:            ${{ env.AWS_REGION }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      # ── 3. Instalar kubectl ───────────────────────────────
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
         with:
           version: v1.29.0
 
-      # ── 4. Conectar al cluster ────────────────────────────
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig \
             --region ${{ env.AWS_REGION }} \
             --name   ${{ secrets.EKS_CLUSTER_NAME }}
 
-      # ── 5. Aplicar namespace y ConfigMap ──────────────────
       - name: Apply namespace & config
         run: |
-          echo "📋 Aplicando namespace y ConfigMap..."
           kubectl apply -f k8s/00-config.yaml
 
-      # ── 6. Crear/actualizar Secret de aplicación ──────────
       - name: Create/update app secret
         run: |
-          echo "🔐 Actualizando secrets..."
           kubectl create secret generic backend-secret \
             --from-literal=JWT_SECRET="${{ secrets.JWT_SECRET }}" \
             --from-literal=JWT_REFRESH_SECRET="${{ secrets.JWT_REFRESH_SECRET }}" \
@@ -162,33 +150,49 @@ jobs:
             -n notara-backend \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      # ── 7. Inyectar imagen real en los manifiestos ─────────
+      # ── Inyectar la imagen REAL de cada servicio en el manifiesto ──
+      # Cada Deployment en 01-deployments.yaml tiene un placeholder distinto:
+      #   image: ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/notara/<servicio>:latest
+      # Lo reemplazamos por:
+      #   image: <ECR_REGISTRY>/notara-back:<servicio>-<sha>
       - name: Inject ECR image URIs into manifests
         run: |
           ECR=${{ env.ECR_REGISTRY }}
+          REPO=${{ env.ECR_REPO }}
           TAG=${{ env.IMAGE_TAG }}
 
-          # Reemplaza el placeholder ACCOUNT_ID con el registry real
-          sed -i "s|ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com|${ECR}|g" \
-            k8s/01-deployments.yaml
+          declare -A SERVICES=(
+            ["notara/eureka-server"]="eureka-server"
+            ["notara/ms-usuarios"]="ms-usuarios"
+            ["notara/ms-canciones"]="ms-canciones"
+            ["notara/ms-notas-metas"]="ms-notas-metas"
+            ["notara/ms-pagos-subscripciones"]="ms-pagos-subscripciones"
+            ["notara/ms-notificaciones"]="ms-notificaciones"
+            ["notara/ms-vocabulario"]="ms-vocabulario"
+            ["notara/api-gateway"]="api-gateway"
+          )
 
-          # Reemplaza :latest con el SHA del commit para trazabilidad
-          sed -i "s|:latest|:${TAG}|g" k8s/01-deployments.yaml
+          for OLD_NAME in "${!SERVICES[@]}"; do
+            SERVICE_TAG="${SERVICES[$OLD_NAME]}"
+            OLD_IMAGE="ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/${OLD_NAME}:latest"
+            NEW_IMAGE="${ECR}/${REPO}:${SERVICE_TAG}-${TAG}"
 
-      # ── 8. Aplicar deployments ────────────────────────────
+            sed -i "s|${OLD_IMAGE}|${NEW_IMAGE}|g" k8s/01-deployments.yaml
+          done
+
+          echo "📋 Imágenes inyectadas:"
+          grep "image:" k8s/01-deployments.yaml
+
       - name: Apply deployments
         run: |
-          echo "📦 Aplicando manifiestos del backend..."
           kubectl apply -f k8s/01-deployments.yaml
 
-      # ── 9. Esperar: Eureka primero (base para los demás) ──
       - name: Wait for Eureka Server
         run: |
           echo "⏳ Eureka Server (servicio base)..."
           kubectl rollout status deployment/eureka-server \
             -n notara-backend --timeout=180s
 
-      # ── 10. Esperar el resto de microservicios ─────────────
       - name: Wait for all microservices
         run: |
           SERVICES=(
@@ -207,7 +211,6 @@ jobs:
               -n notara-backend --timeout=180s
           done
 
-      # ── 11. Estado final ───────────────────────────────────
       - name: Show final status
         run: |
           echo ""

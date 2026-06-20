@@ -134,6 +134,16 @@ jobs:
             --region ${{ env.AWS_REGION }} \
             --name   ${{ secrets.EKS_CLUSTER_NAME }}
 
+      # ── Limpieza: borra deployments previos para evitar que se
+      # acumulen ReplicaSets viejos de intentos fallidos, que
+      # compiten por memoria con el deploy nuevo. Si el namespace
+      # no existe aún (primera vez), simplemente no hace nada.
+      - name: Clean up previous deployments
+        run: |
+          echo "🧹 Limpiando deployments anteriores (si existen)..."
+          kubectl delete deployment --all -n notara-backend --ignore-not-found=true --wait=true --timeout=60s || true
+          echo "✅ Limpieza completa"
+
       - name: Apply namespace & config
         run: |
           kubectl apply -f k8s/00-config.yaml

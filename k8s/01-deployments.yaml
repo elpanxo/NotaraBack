@@ -35,7 +35,7 @@ spec:
               value: "8761"
           resources:
             requests:
-              memory: "384Mi"
+              memory: "256Mi"
               cpu: "150m"
             limits:
               memory: "512Mi"
@@ -79,7 +79,7 @@ metadata:
   labels:
     app: ms-usuarios
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: ms-usuarios
@@ -133,10 +133,10 @@ spec:
                   key: JWT_REFRESH_SECRET
           resources:
             requests:
-              memory: "384Mi"
+              memory: "256Mi"
               cpu: "200m"
             limits:
-              memory: "768Mi"
+              memory: "512Mi"
               cpu: "500m"
           readinessProbe:
             httpGet:
@@ -171,7 +171,7 @@ metadata:
   labels:
     app: ms-canciones
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: ms-canciones
@@ -248,7 +248,7 @@ metadata:
   labels:
     app: ms-notas-metas
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: ms-notas-metas
@@ -287,10 +287,10 @@ spec:
                   key: POSTGRES_PASSWORD
           resources:
             requests:
-              memory: "384Mi"
+              memory: "256Mi"
               cpu: "150m"
             limits:
-              memory: "768Mi"
+              memory: "512Mi"
               cpu: "400m"
           readinessProbe:
             httpGet:
@@ -325,7 +325,7 @@ metadata:
   labels:
     app: ms-pagos
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: ms-pagos
@@ -384,10 +384,10 @@ spec:
                   key: RABBITMQ_PASSWORD
           resources:
             requests:
-              memory: "384Mi"
+              memory: "256Mi"
               cpu: "150m"
             limits:
-              memory: "768Mi"
+              memory: "512Mi"
               cpu: "400m"
           readinessProbe:
             httpGet:
@@ -512,7 +512,7 @@ metadata:
   labels:
     app: ms-vocabulario
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: ms-vocabulario
@@ -561,10 +561,10 @@ spec:
                   key: REDIS_PORT
           resources:
             requests:
-              memory: "384Mi"
+              memory: "256Mi"
               cpu: "150m"
             limits:
-              memory: "768Mi"
+              memory: "512Mi"
               cpu: "400m"
           readinessProbe:
             httpGet:
@@ -599,7 +599,7 @@ metadata:
   labels:
     app: api-gateway
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: api-gateway
